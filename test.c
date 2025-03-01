@@ -1,13 +1,17 @@
+#include <stdlib.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <locale.h>
+#include <wchar.h>
+#include <wctype.h>
 #include <ugraph29.h>
 
 #define CBREAK  0xffffffff
 #define EOS     0xfffffffe
 #define EOD     0x00000000
-#define MAX_CPS 16 // ensure larger than longest string in `upgraph_test_data`
+#define MAX_CPS 256 // ensure larger than longest string in data arrays
 
-static uint32_t upgraph_test_data[] = {
+static uint32_t unicode_test_data[] = {
     // ```
     // curl -s 'https://www.unicode.org/Public/UCD/latest/ucd/auxiliary/GraphemeBreakTest.txt' | grep '^÷' | tr -d ' ' | sed -E -e 's/#.*//' -e 's/^÷//' -e 's/÷\t$//' -e 's/×/,/g' -e 's/÷/,CBREAK,/g' -e 's/\b([0-9A-Fa-f]+)\b/0x\1/g' -e 's/$/,EOS,/' | { cat -; echo EOD; }
     // ```
@@ -1107,15 +1111,78 @@ static uint32_t upgraph_test_data[] = {
     EOD
 };
 
-int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
-    uint32_t *data = upgraph_test_data;
-    uint32_t cps[64];
-    ptrdiff_t graph_lens[64];
+// Some of these are adapted from
+// https://raw.githubusercontent.com/Z4JC/ugrapheme/refs/heads/main/tests/test_graphemes.py
+static uint32_t local_test_data[] = {
+    'h', CBREAK, 'i', EOS,
+
+    '4', CBREAK, '2', EOS,
+
+    // 👩🏽‍🔬🏴󠁧󠁢󠁳󠁣󠁴󠁿
+    0x1f469, 0x1f3fd, 0x200d, 0x1f52c, CBREAK, 0x1f3f4, 0xe0067, 0xe0062, 0xe0073, 0xe0063, 0xe0074, 0xe007f, EOS,
+
+    // l̷̢̢̰̬͇̙͉͕̠̠̥̂̿̋͑̕͝͠ͅͅĩ̴̡̢̛̠̻̫̲͉̤̱̟͍̤̳͔͐̍̔̈́͊̒͂͋̈́̉̔̕̚͜͜͠k̸͍̳̜̗̰̼̦̟̖̳̥̙̗̂́̓̎͌͊͘ȩ̴͔̝̤̳̖̜̓̽̕ ̶̪̺͖̈́̃t̷̪̯̟̳͍̲͔̎͋̿̉̒̑̓̊̾̊̒̚͘ḩ̷̦͂̈́͗͌̏̏̇̔̈́͒̒̆̄̈́̚͠į̸̨̡̛̤͚͓̯͎̘̪̙̟̮͈͔͔̈́͋̉̾̃̎̒̈́́̾͂́ͅś̷̘̙̜̯͖̄͆̿̄̑̄̄͝
+    0x00006c, 0x000337, 0x000322, 0x000322, 0x000330, 0x00032c, 0x000347, 0x000319, 0x000349, 0x000355, 0x000320, 0x000320, 0x000325, 0x000302, 0x00033f, 0x00030b, 0x000351, 0x000315, 0x00035d, 0x000360, 0x000345, 0x000345, CBREAK, // l̷̢̢̰̬͇̙͉͕̠̠̥̂̿̋͑̕͝͠ͅͅ
+    0x000129, 0x000334, 0x000321, 0x000322, 0x00031b, 0x000320, 0x00033b, 0x00032b, 0x000332, 0x000349, 0x000324, 0x000331, 0x00031f, 0x00034d, 0x000324, 0x000333, 0x000354, 0x000350, 0x00030d, 0x000314, 0x000308, 0x000301, 0x00034a, 0x000312, 0x000342, 0x00034b, 0x000308, 0x000301, 0x000309, 0x000314, 0x000315, 0x00031a, 0x00035c, 0x00035c, 0x000360, CBREAK, // ĩ̴̡̢̛̠̻̫̲͉̤̱̟͍̤̳͔͐̍̔̈́͊̒͂͋̈́̉̔̕̚͜͜͠
+    0x00006b, 0x000338, 0x00034d, 0x000333, 0x00031c, 0x000317, 0x000330, 0x00033c, 0x000326, 0x00031f, 0x000316, 0x000333, 0x000325, 0x000319, 0x000317, 0x000302, 0x000301, 0x000313, 0x00030e, 0x00034c, 0x00034a, 0x000358, CBREAK, // k̸͍̳̜̗̰̼̦̟̖̳̥̙̗̂́̓̎͌͊͘
+    0x000229, 0x000334, 0x000354, 0x00031d, 0x000324, 0x000333, 0x000316, 0x00031c, 0x000313, 0x00033d, 0x000315, CBREAK, // ȩ̴͔̝̤̳̖̜̓̽̕
+    0x000020, 0x000336, 0x00032a, 0x00033a, 0x000356, 0x000308, 0x000301, 0x000303, CBREAK, //  ̶̪̺͖̈́̃
+    0x000074, 0x000337, 0x00032a, 0x00032f, 0x00031f, 0x000333, 0x00034d, 0x000332, 0x000354, 0x00030e, 0x00034b, 0x00033f, 0x000309, 0x000312, 0x000311, 0x000313, 0x00030a, 0x00033e, 0x00030a, 0x000312, 0x00031a, 0x000358, CBREAK, // t̷̪̯̟̳͍̲͔̎͋̿̉̒̑̓̊̾̊̒̚͘
+    0x001e29, 0x000337, 0x000326, 0x000342, 0x000308, 0x000301, 0x000357, 0x00034c, 0x00030f, 0x00030f, 0x000307, 0x000314, 0x000308, 0x000301, 0x000352, 0x000312, 0x000306, 0x000304, 0x000308, 0x000301, 0x00031a, 0x000360, CBREAK, // ḩ̷̦͂̈́͗͌̏̏̇̔̈́͒̒̆̄̈́̚͠
+    0x00012f, 0x000338, 0x000328, 0x000321, 0x00031b, 0x000324, 0x00035a, 0x000353, 0x00032f, 0x00034e, 0x000318, 0x00032a, 0x000319, 0x00031f, 0x00032e, 0x000348, 0x000354, 0x000354, 0x000308, 0x000301, 0x00034b, 0x000309, 0x00033e, 0x000303, 0x00030e, 0x000312, 0x000308, 0x000301, 0x000301, 0x00033e, 0x000342, 0x000301, 0x000345, CBREAK, // į̸̨̡̛̤͚͓̯͎̘̪̙̟̮͈͔͔̈́͋̉̾̃̎̒̈́́̾͂́ͅ
+    0x00015b, 0x000337, 0x000318, 0x000319, 0x00031c, 0x00032f, 0x000356, 0x000304, 0x000346, 0x00033f, 0x000304, 0x000311, 0x000304, 0x000304, 0x00035d, EOS, // ś̷̘̙̜̯͖̄͆̿̄̑̄̄͝
+
+    // u̲n̲d̲e̲r̲l̲i̲n̲e̲d̲
+    0x000075, 0x000332, CBREAK, 0x00006e, 0x000332, CBREAK, 0x000064, 0x000332, CBREAK, 0x000065, 0x000332, CBREAK, 0x000072, 0x000332, CBREAK, 0x00006c, 0x000332, CBREAK, 0x000069, 0x000332, CBREAK, 0x00006e, 0x000332, CBREAK, 0x000065, 0x000332, CBREAK, 0x000064, 0x000332, EOS,
+
+    // 기운찰만하다
+    0x001100, 0x001175, CBREAK, 0x00110b, 0x00116e, 0x0011ab, CBREAK, 0x00110e, 0x001161, 0x0011af, CBREAK, 0x001106, 0x001161, 0x0011ab, CBREAK, 0x001112, 0x001161, CBREAK, 0x001103, 0x001161, EOS,
+
+    // পৌষসংক্রান্তির
+    0x0009aa, 0x0009cc, CBREAK, 0x0009b7, CBREAK, 0x0009b8, 0x000982, CBREAK, 0x000995, 0x0009cd, 0x0009b0, 0x0009be, CBREAK, 0x0009a8, 0x0009cd, 0x0009a4, 0x0009bf, CBREAK, 0x0009b0, EOS,
+
+    // aînée
+    'a', CBREAK, 'i', 0x0302, CBREAK, 'n', CBREAK, 'e', 0x0301, CBREAK, 'e', EOS,
+
+    // बन्दूक
+    0x00092c, CBREAK, 0x000928, 0x00094d, 0x000926, 0x000942, CBREAK, 0x000915, EOS,
+
+    // बन्दूक बन्दूक
+    0x00092c, CBREAK, 0x000928, 0x00094d, 0x000926, 0x000942, CBREAK, 0x000915, CBREAK, 0x000020, CBREAK, 0x00092c, CBREAK, 0x000928, 0x00094d, 0x000926, 0x000942, CBREAK, 0x000915, EOS,
+
+    // हिन्दी
+    0x000939, 0x00093f, CBREAK, 0x000928, 0x00094d, 0x000926, 0x000940, EOS,
+
+    // नमस्ते
+    0x000928, CBREAK, 0x00092e, CBREAK, 0x000938, 0x00094d, 0x000924, 0x000947, EOS,
+
+    // हिन्दी मुख्यमंत्री हिमंत
+    0x000939, 0x00093f, CBREAK,
+    0x000928, 0x00094d, 0x000926, 0x000940, CBREAK,
+    0x000020, CBREAK,
+    0x00092e, 0x000941, CBREAK,
+    0x000916, 0x00094d, 0x00092f, CBREAK,
+    0x00092e, 0x000902, CBREAK,
+    0x000924, 0x00094d, 0x000930, 0x000940, CBREAK,
+    0x000020, CBREAK,
+    0x000939, 0x00093f, CBREAK,
+    0x00092e, 0x000902, CBREAK,
+    0x000924, EOS,
+
+    // தமிழ்
+    0x000ba4, CBREAK,
+    0x000bae, 0x000bbf, CBREAK,
+    0x000bb4, 0x000bcd, EOS,
+
+    EOD
+};
+
+static int run_tests(const char *name, uint32_t *data) {
+    uint32_t cps[MAX_CPS];
+    ptrdiff_t graph_lens[MAX_CPS];
     ptrdiff_t i = 0, si, j;
     int ntest = 0;
-    int ok = 1;
+    int rv = 0;
 
     do {
         // Find test string
@@ -1134,7 +1201,7 @@ int main(int argc, char **argv) {
         } while (data[i++] != EOS);
 
         // Print test string
-        printf("test case %04x: ", ntest);
+        printf("test case %s %04x: ", name, ntest);
         for (j = si; j < i - 1; j++) {
             if (data[j] == CBREAK) {
                 printf("| ");
@@ -1142,7 +1209,18 @@ int main(int argc, char **argv) {
                 printf("%06x ", data[j]);
             }
         }
-        printf("\n");
+        printf("# (");
+        char mb[8];
+        for (j = 0; j < ncps; j++) {
+            if (iswprint((wint_t)cps[j])) {
+                int mblen = wctomb(mb, (wchar_t)cps[j]);
+                mb[mblen] = 0x0;
+                printf("%s", mb);
+            } else {
+                printf(".");
+            }
+        }
+        printf(")\n");
 
         // Perform test
         struct ugraph29_state s = {0};
@@ -1157,7 +1235,7 @@ int main(int argc, char **argv) {
                 "%s\x1b[0m"
                 "(expected_len=%td,observed_len=%td)\n",
                 graph_i,
-                observed_len == expected_len ? "\x1b[32mok" : (ok = 0, "\x1b[31mnok"),
+                observed_len == expected_len ? "\x1b[32mok" : (rv = 1, "\x1b[31mnok"),
                 expected_len,
                 observed_len
             );
@@ -1170,5 +1248,15 @@ int main(int argc, char **argv) {
         ++ntest;
     } while (data[i] != EOD);
 
-    return ok ? 0 : 1;
+    return rv;
+}
+
+int main(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    setlocale(LC_ALL, "");
+    int rv = 0;
+    rv |= run_tests("unicode", unicode_test_data);
+    rv |= run_tests("local", local_test_data);
+    return rv;
 }

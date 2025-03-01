@@ -74,6 +74,6 @@ install_so: $(ugraph29_so_x_y_z)
 	ln -sf $(ugraph29_so_x_y_z) $(DESTDIR)$(prefix)/lib/$(ugraph29_so)
 
 clean:
-	rm -f $(ugraph29_o) $(ugraph29_a) $(ugraph29_so) $(ugraph29_so_x) $(ugraph29_so_x_y_z)
+	rm -f $(ugraph29_o) $(ugraph29_a) $(ugraph29_so) $(ugraph29_so_x) $(ugraph29_so_x_y_z) $(ugraph29_test)
 
 .PHONY: all test codegen format install lib install_lib install_h install_a install_so clean
