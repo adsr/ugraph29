@@ -58,6 +58,13 @@ struct ugraph29_state {
  */
 ptrdiff_t ugraph29_get_grapheme_length(struct ugraph29_state *s, uint32_t *cps, ptrdiff_t ncps, ptrdiff_t start);
 
+/**
+ * Like `ugraph29_get_grapheme_length` but accepts a void pointer and a function
+ * that indexes it and returns a u32. Useful if your string data structure is
+ * not an array of u32s, but something else, like an array of structs.
+ */
+ptrdiff_t ugraph29_get_grapheme_length_ex(struct ugraph29_state *s, void *vcps, ptrdiff_t ncps, ptrdiff_t start, uint32_t (*index_vcps_to_u32)(void *vcps, ptrdiff_t i));
+
 #endif // UGRAPH29_H_INCL
 
 #ifdef UGRAPH29_IMPL
@@ -2498,14 +2505,22 @@ static enum ugraph29_prop ugraph29_lookup_prop(struct ugraph29_table *table, int
     return 0;
 }
 
+static uint32_t index_u32cps_to_u32(void *vcps, ptrdiff_t i) {
+    return ((uint32_t *)vcps)[i];
+}
+
 // Get next grapheme cluster length of string `cps` starting at offset `start`
 ptrdiff_t ugraph29_get_grapheme_length(struct ugraph29_state *s, uint32_t *cps, ptrdiff_t ncps, ptrdiff_t start) {
+    return ugraph29_get_grapheme_length_ex(s, cps, ncps, start, index_u32cps_to_u32);
+}
+
+ptrdiff_t ugraph29_get_grapheme_length_ex(struct ugraph29_state *s, void *vcps, ptrdiff_t ncps, ptrdiff_t start, uint32_t (*index_vcps_to_u32)(void *vcps, ptrdiff_t i)) {
     ptrdiff_t i;
     enum ugraph29_prop a, b;
 
     for (i = start; i + 1 < ncps; i++) {
-        uint32_t ac = cps[i];
-        uint32_t bc = cps[i + 1];
+        uint32_t ac = index_vcps_to_u32(vcps, i);
+        uint32_t bc = index_vcps_to_u32(vcps, i + 1);
 
         if (i == start) {
             // Fast path for printable ASCII range
